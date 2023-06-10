@@ -1,82 +1,111 @@
-# Import dependencies
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
-from tensorflow import keras
+from tensorflow	import keras
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import InputLayer, Dense
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras import layers
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import Normalizer
+from sklearn.metrics import r2_score
 
-# Read the dataset
-dataset = pd.read_csv('admissions_data.csv')
 
-# Split features and labels
-labels = dataset.iloc[:, -1]
-features = dataset.iloc[:, 1:-1]
+# load admissions data
+admissions_data = pd.read_csv("admissions_data.csv")
+#print(admissions_data.head())
 
-# Split the dataset into training and test sets
-features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size=0.22, random_state=42)
+#admissions_data.describe()
+#print(admissions_data.shape)
 
-# Apply column transformation to scale numeric features
-ct = ColumnTransformer([("only numeric", StandardScaler(), features.columns)], remainder="passthrough")
-features_train_scaled = ct.fit_transform(features_train)
-features_test_scaled = ct.transform(features_test)
+# mark predicted values
+labels = admissions_data.iloc[:,-1]
+#print(labels.describe())
 
-# Define the model architecture
-def my_model(input_shape):
-  model = Sequential(name="deep_learning_regression")
-  model.add(InputLayer(input_shape=input_shape))
-  model.add(Dense(64, activation='relu'))
-  model.add(Dense(1))
-  return model
+# mark features
+features = admissions_data.iloc[:, 1:8]
 
-# Create the model
-model = my_model(features_train_scaled.shape[1])
+#split our training and test set
+features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size=0.25, random_state = 42)
 
-# Compile the model
-opt = Adam(learning_rate=0.01)
-model.compile(loss='mse', metrics=['mae'], optimizer=opt)
+# standardizing our data by scaling it
+sc = StandardScaler()
+features_train_scale = sc.fit_transform(features_train)
+features_test_scale = sc.transform(features_test)
 
-# Fit the model to the training data
-history = model.fit(features_train_scaled, labels_train, epochs=40, batch_size=1, verbose=1)
+# commented out code for if you want to check out the scaled data
 
-# Evaluate the model on the training data
-res_mse, res_mae = model.evaluate(features_train_scaled, labels_train, verbose=1)
+#features_train_scale = pd.DataFrame(features_train_scale, columns = features_train.columns)
+#features_test_scale = pd.DataFrame(features_test_scale, columns = features_test.columns)
 
-# Predict chance of admission for each line in the training set
-admission_predictions = model.predict(features_train_scaled)
-for i, prediction in enumerate(admission_predictions):
-    print(f"Row In Dataset {i+1}: Chance of Admit: {prediction[0]}")
+#print(features_train_scale.describe())
+#print(features_test_scale.describe())
 
-# Create plots to visualize model metrics
-"""
+# function to design the model
+def design_model(feature_data):
+	model = Sequential()
+	num_features = feature_data.shape[1]
+	input = tf.keras.Input(shape=(num_features))
+	model.add(input)
+	# this model has two hidden layers and two dropout layers
+	# relu activation function is used at both hidden layers
+	hidden_layer = layers.Dense(16, activation='relu')
+	model.add(hidden_layer)
+	model.add(layers.Dropout(0.1))
+	hidden_layer_2 = layers.Dense(8, activation='relu')
+	model.add(hidden_layer_2)
+	model.add(layers.Dropout(0.2))
+	model.add(layers.Dense(1))
+
+	# using an adam optimizer with a learning rate of 0.005
+	# using mean-squared error as our loss function and mean average error as our metric
+	opt = keras.optimizers.Adam(learning_rate=0.005)
+	model.compile(loss='mse', metrics=['mae'], optimizer=opt)
+	return model
+
+
+# apply the model to the scaled training data
+model = design_model(features_train_scale)
+#print(model.summary())
+
+# apply early stopping for efficiency
+es = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=20)
+
+# fit the model with 100 epochs and a batch size of 8
+# validation split at 0.25
+history = model.fit(features_train_scale, labels_train.to_numpy(), epochs=100, batch_size=8, verbose=1, validation_split=0.25, callbacks=[es])
+
+# evaluate the model
+val_mse, val_mae = model.evaluate(features_test_scale, labels_test.to_numpy(), verbose = 0)
+
+# view the MAE performance
+print("MAE: ", val_mae)
+
+# evauate r-squared score
+y_pred = model.predict(features_test_scale)
+
+print(r2_score(labels_test,y_pred))
+
+# plot MAE and val_MAE over each epoch
 fig = plt.figure()
-
-# Plot MAE over each epoch
 ax1 = fig.add_subplot(2, 1, 1)
 ax1.plot(history.history['mae'])
 ax1.plot(history.history['val_mae'])
-ax1.set_title('Model MAE')
+ax1.set_title('model mae')
 ax1.set_ylabel('MAE')
-ax1.set_xlabel('Epoch')
-ax1.legend(['Train', 'Validation'], loc='upper left')
+ax1.set_xlabel('epoch')
+ax1.legend(['train', 'validation'], loc='upper left')
 
-# Plot loss over each epoch
+# Plot loss and val_loss over each epoch
 ax2 = fig.add_subplot(2, 1, 2)
 ax2.plot(history.history['loss'])
 ax2.plot(history.history['val_loss'])
-ax2.set_title('Model Loss')
-ax2.set_ylabel('Loss')
-ax2.set_xlabel('Epoch')
-ax2.legend(['Train', 'Validation'], loc='upper left')
+ax2.set_title('model loss')
+ax2.set_ylabel('loss')
+ax2.set_xlabel('epoch')
+ax2.legend(['train', 'validation'], loc='upper left')
 
-# Save the plots as an image
-fig.tight_layout()
-fig.savefig('static/images/my_plots.png')
-"""
+plt.show()
